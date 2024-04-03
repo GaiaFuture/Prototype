@@ -258,6 +258,71 @@ def train_emulator(param, var):
     print("Training RMSE:", rmse_train)
     print("Mean Absolute Error:", mae)
 
+    return results_df
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ---- Emulator Accuracy Plot ----------------
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+def accuracy_plot(results_df):
+    coef_deter = r2_score(results_df.y_test,results_df.y_pred)
+    
+    plt.errorbar(results_df.y_test,
+                     results_df.y_pred,
+                     yerr=3*results_df.y_std,
+                     fmt="o",
+                     color='#134611')
+    
+    plt.text(0,np.max(results_df.y_test),
+                'R2_score = '+str(np.round(coef_deter,2)),
+                fontsize=12)
+    
+    plt.plot([0,np.max(results_df.y_test)],
+             [0,np.max(results_df.y_pred)],
+              linestyle='--',
+               c='k')
+
+    plt.xlabel('Variable Test')
+    plt.ylabel('Emulated Variable')
+    plt.title('Emulator Validation')
+    
+    
+    return plt.tight_layout()
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ---- Emulator Accuracy Plot ----------------
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+def emulator_plot(results_df):
+    #Create an array that sets the value of all 32 parameters to 0.5
+    X_values = np.full((100, 32), 0.5)  # Fill array with 0.5
+    #For the parameter of interest, replace the 0.5 with a range of values between 0 and 1
+    X_values[:, 15] = np.linspace(0, 1, 100)  # Set the 15th column values to evenly spaced values from 0 to 1
+    coef_deter = r2_score(results_df.y_test,results_df.y_pred)
+
+    plt.figure(figsize=(10, 6))
+    # Plot the mean line
+    plt.plot(X_values[:, 15], results_df.y_pred, color='#134611', linestyle='-', label='Gaussian Process Regression Emulation')
+
+    # Calculate the z-score for the 99.7% confidence interval
+    z_score = norm.ppf(0.99865)  # 99.7th percentile (three standard deviations)
+
+    # Plot the shaded region for the 99.7% confidence interval with three standard deviations
+    plt.fill_between(X_values[:,15], results_df.y_pred - z_score * results_df.y_std, results_df.y_pred + z_score * results_df.y_std,
+                     color='#9d6b53',
+                     alpha=0.3,
+                     label = 'Confidence Interval within 3 Standard Deviations')
+
+    plt.text(0.5, np.max(results_df.y_test),
+                'R2_score = '+str(np.round(coef_deter,2)),
+                fontsize=12)
+
+    plt.xlabel('Perturbed Parameter')
+    plt.ylabel('Variable')
+    plt.title('Parameter Perturbation Uncertainty Estimation')
+
+    plt.legend()
+    return plt.show()
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ---- User Selected Panel Plotting Funct ---- # adding this because working to implement into ml wkflw 
@@ -274,3 +339,4 @@ def cluster_panel_plot(param_avg, var_avg):
         xlabel=param, ylabel=var, title='2005-2010 Global Average'
     )
     return pn.panel(scatter_plot)
+
