@@ -27,6 +27,11 @@ from sklearn.metrics import mean_absolute_error
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import r2_score
 from scipy.stats import norm
+from scipy.fft import fft
+
+import panel as pn
+import param
+pn.extension()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ----  server request to aid processing  ----
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -227,7 +232,7 @@ def train_emulator(param, var):
 
     gpr_model.fit(X_train, y_train)
 
-    y_pred, y_std = gpr_model.predict(X_test, return_std=True)
+    y_pred, y_std = gpr_model.predict(X_test, return_std=True) 
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ----         Collect Metrics      ----
@@ -253,11 +258,6 @@ def train_emulator(param, var):
     results_df['RMSE'] = rmse_train
     results_df['Mean Absolute Error'] = mae
 
-    # Print Training Metrics
-    print("Training R^2:", r2_train)
-    print("Training RMSE:", rmse_train)
-    print("Mean Absolute Error:", mae)
-
     return results_df
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -266,7 +266,7 @@ def train_emulator(param, var):
 
 def accuracy_plot(results_df):
     coef_deter = r2_score(results_df.y_test,results_df.y_pred)
-    
+    fig = plt.Figure()
     plt.errorbar(results_df.y_test,
                      results_df.y_pred,
                      yerr=3*results_df.y_std,
@@ -286,8 +286,8 @@ def accuracy_plot(results_df):
     plt.ylabel('Emulated Variable')
     plt.title('Emulator Validation')
     
+    return fig
     
-    return plt.tight_layout()
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ---- Emulator Accuracy Plot ----------------
@@ -299,7 +299,8 @@ def emulator_plot(results_df):
     #For the parameter of interest, replace the 0.5 with a range of values between 0 and 1
     X_values[:, 15] = np.linspace(0, 1, 100)  # Set the 15th column values to evenly spaced values from 0 to 1
     coef_deter = r2_score(results_df.y_test,results_df.y_pred)
-
+    
+    fig, ax = plt.subplots()
     plt.figure(figsize=(10, 6))
     # Plot the mean line
     plt.plot(X_values[:, 15], results_df.y_pred, color='#134611', linestyle='-', label='Gaussian Process Regression Emulation')
@@ -322,21 +323,28 @@ def emulator_plot(results_df):
     plt.title('Parameter Perturbation Uncertainty Estimation')
 
     plt.legend()
-    return plt.show()
+    return fig
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# ---- User Selected Panel Plotting Funct ---- # adding this because working to implement into ml wkflw 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# function to plot a cluster for the dashboard
-def cluster_panel_plot(param_avg, var_avg):
-    '''Basic plotting to aid with dashboard set up 
-    building on currently.'''
-    data = pd.DataFrame({'x': param_avg, 'y': var_avg})
+# Define a custom function to generate the Gaussian regression line for each parameter
+def gaussian_regression_lines(model, X):
+    fourier_amplitudes = []  # List to store Fourier amplitudes for each parameter
     
-    # Create scatter plot using hvplot
-    hvplot.scatter(
-        x='x', y='y', color='#62c900ff', alpha=0.8,
-        xlabel=param, ylabel=var, title='2005-2010 Global Average'
-    )
-    return pn.panel(scatter_plot)
+    for param_index in range(32):
+        # Generate x_values with 32 dimensions
+        x_values = np.full((10, 32), 0.5)  # Fill array with 0.5
+        x_values[:, param_index] = np.linspace(0, 1, 10)  # Set the current parameter values to evenly spaced values from 0 to 1
+
+        # Predict mean and standard deviation of the Gaussian process at each point in x_values
+        y_mean, _ = model.predict(x_values, return_std=True)
+
+        # Compute Fourier transform of the model output
+        y_fft = fft(y_mean)
+
+        # Compute amplitude of each frequency component
+        amplitude = np.abs(y_fft)
+
+        # Store the amplitude corresponding to the first non-zero frequency (excluding DC component)
+        fourier_amplitudes.append(amplitude[1])
+
+    return fourier_amplitudes
 
