@@ -289,7 +289,7 @@ def train_emulator(param, var):
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ----      Pickle Emulation     ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+    # work in progress in GaiaFuture/Scripts/ML/Gaussian/gpr_pickling.ipynb
 
 
 
@@ -314,7 +314,10 @@ def train_emulator(param, var):
     
     #For the parameter of interest, replace the 0.5 with a range of values between 0 and 1
     X_values[:, 15] = np.linspace(0, 1, 10)  # Set the 15th column values to evenly spaced values from 0 to 1
-    coef_deter = r2_score(y_test,y_pred)
+
+    # Predict mean and standard deviation of the Gaussian process at each point in x_values
+    y_pred, y_std = gpr_model.predict(X_values, return_std=True)
+    coef_deter = r2_score(y_test[:10],y_pred[:10])
 
     
     # Plot the results
@@ -349,8 +352,8 @@ def train_emulator(param, var):
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ----      Visualize Accuracy      ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-    plt.errorbar(y_test,
-                 y_pred,
+    plt.errorbar(y_test[:10],
+                 y_pred[:10],
                  yerr=3*y_std,
                  fmt="o",
                  color='#134611')
@@ -374,8 +377,6 @@ def train_emulator(param, var):
     plt.tight_layout()
 
     return plt.show()
-
-
 
 # Define a custom function to generate the Gaussian regression line for each parameter
 def gaussian_regression_lines(model, X):
