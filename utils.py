@@ -117,6 +117,19 @@ landarea = landarea_ds['landarea']
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     #----        Parameter Data.       ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# store the parameter names to index later
+param_names = {
+        key.upper(): value for key, value in {
+            'FUN_fracfixers': 0, 'KCN': 1, 'a_fix': 2, 'crit_dayl': 3, 'd_max': 4, 'fff': 5,
+            'froot_leaf': 6, 'fstor2tran': 7, 'grperc': 8, 'jmaxb0': 9, 'jmaxb1': 10, 'kcha': 11,
+            'kmax': 12, 'krmax': 13, 'leaf_long': 14, 'leafcn': 15, 'lmr_intercept_atkin': 16,
+            'lmrha': 17, 'lmrhd': 18, 'medlynintercept': 19, 'medlynslope': 20, 'nstem': 21,
+            'psi50': 22, 'q10_mr': 23, 'slatop': 24, 'soilpsi_off': 25, 'stem_leaf': 26,
+            'sucsat_sf': 27, 'theta_cj': 28, 'tpu25ratio': 29, 'tpuse_sf': 30, 'wc2wjb0': 31
+        }.items()
+    }
+
+
 def param_wrangling():
     # x parameter data for assessment
     df = pd.read_csv('/glade/campaign/asp/djk2120/PPEn11/csvs/lhc220926.txt',index_col=0)
@@ -126,6 +139,7 @@ def param_wrangling():
 
     # list comprehension no need for empty list
     columns = [params[v].values for v in params.data_vars]
+
 
     # iterate over params
     return np.array(columns).T
@@ -212,11 +226,81 @@ def wrangle_var_cluster(da):
     return var
 
 
-# Create an array that sets the value of all 32 parameters to 0.5
-# this will be used when plotting emulation
-X_values = np.full((10, 32), 0.5)  # Fill array with 0.5
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ----        Wrangle Data          ----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+def read_n_wrangle(param, var):
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    #----            Parameter Data.          ----
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # store user-inputs as global variables
+    # will call later for plotting
+    global param_name, var_name
+    param_name = param
+    var_name = var
+    
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    #----            Parameter Data.          ----
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # pull in parameter data
+    params = param_wrangling()
+    
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    #----        If-else Load Data       ----
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    
+    filepath = os.path.join("saves", f"{var}.nc")
+    if os.path.exists(filepath):
+         #read in the file as a dataset
+        ds=xr.open_dataset('saves/'+var+'.nc')
+    
+        #then convert back to data array
+        var_avg = ds[var]
+    else:
+        print(f"Reading and wrangling your data, this may take a few minutes")
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # ----    Subset User Selection Funct     ----
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        var_da = subset_var_cluster(var)
+
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # ----      Subset Var Wrangle Funct      ----
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # NEED TO ADD NAME ATTRIBUTE IN WRANGLING PORTION
+        var_avg = wrangle_var_cluster(var_da)
+
+        #you ought to convert the data array to dataset before writing to file
+        ds = var_avg.to_dataset(name = var)
+        ds.to_netcdf('saves/'+var+'.nc') # note that this will throw error if you try to overwrite existing files
+
+    return params, var_avg, param_name, var_name
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ----        Train Emulator        ----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 def train_emulator(param, var):
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # ----   Load Pickled Emulation     ----
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   # work in progress in GaiaFuture/Scripts/ML/Gaussian/gpr_pickling.ipynb
+    # if it's already been queried and saved, pull it!
+    # tis only names properly when inside dashboard function
+    # commenting out now and adapting bc var is xr.da in this case
+    filename = os.path.join("emulation_results", f"gpr_model_{var_name}.sav")
+   
+    if os.path.exists(filename):
+        # load the model from disk
+        loaded_model = pickle.load(open(filename, 'rb'))
+        
+    else:
+        print(f"Emulator is running, this may take a few moments")
+    
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ----      Split Data 90/10        ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -235,10 +319,14 @@ def train_emulator(param, var):
                             constant_value_bounds=(1e-2, 1e4)) \
                   * RBF(length_scale=1, 
                         length_scale_bounds=(1e-4, 1e8))
-
+   
+   
+     # using an out of the box kernel for now
     gpr_model = GaussianProcessRegressor(kernel=kernel,
+                                        # want 20 random starts
                                         n_restarts_optimizer=20,
-                                        random_state=42,
+                                        # setting seed
+                                        random_state=99,
                                         normalize_y=True)
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -267,7 +355,7 @@ def train_emulator(param, var):
     mae = mean_absolute_error(y_test, y_pred)
     
     # Calculate R^2
-    r2_train = r2_score(y_test, y_pred)
+    r2_train = r2_score(y_test, y_pred, force_finite = True)
     
     # Calculate RMSE
     rmse_train = np.sqrt(mean_squared_error(y_test, y_pred))
@@ -286,54 +374,89 @@ def train_emulator(param, var):
     #results_df['Accuracy Score'] = accuracy
     results_df['Mean Absolute Error'] = mae
     
+   
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ----      Pickle Emulation     ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # work in progress in GaiaFuture/Scripts/ML/Gaussian/gpr_pickling.ipynb
-
-
-
+    # save the model to disk
+    pickle.dump(gpr_model, open(filename, 'wb')) 
     
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ----        Print Metrics         ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # Print Training Metrics
-  #  print("Accuracy Score:", accuracy)
     print("Training R^2:", r2_train)
     print("Training RMSE:", rmse_train)
     print("Mean Absolute Error:", mae)
     print("Training Score:", train_score)
-
     
+    return gpr_model, X_train, X_test, y_pred, y_std, y_test
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ----          Plot Emulator       ----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+
+# Create an array that sets the value of all 32 parameters to 0.5
+# this will be used when plotting emulation
+
+X_values = np.full((10, 32), 0.5)  # Fill array with 0.5
+
+
+def plot_emulator(gpr_model):
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ----      Visualize Emulation     ----
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+    # save names
+    param_title = param_name.title()
+    var_title = var_name.title()
+
+    # index parameter name
+    # store the parameter names to index later
+    global param_names
+    param_names = {
+        key.upper(): value for key, value in {
+            'FUN_fracfixers': 0, 'KCN': 1, 'a_fix': 2, 'crit_dayl': 3, 'd_max': 4, 'fff': 5,
+            'froot_leaf': 6, 'fstor2tran': 7, 'grperc': 8, 'jmaxb0': 9, 'jmaxb1': 10, 'kcha': 11,
+            'kmax': 12, 'krmax': 13, 'leaf_long': 14, 'leafcn': 15, 'lmr_intercept_atkin': 16,
+            'lmrha': 17, 'lmrhd': 18, 'medlynintercept': 19, 'medlynslope': 20, 'nstem': 21,
+            'psi50': 22, 'q10_mr': 23, 'slatop': 24, 'soilpsi_off': 25, 'stem_leaf': 26,
+            'sucsat_sf': 27, 'theta_cj': 28, 'tpu25ratio': 29, 'tpuse_sf': 30, 'wc2wjb0': 31
+        }.items()
+    }
+    
+    indexed_param = param_names.get(param_name.upper())
+    
     # Calculate the z-score for the 99.7% confidence interval
     # 99.7th percentile (three standard deviations)
     z_score = norm.ppf(0.99865)  
     
+    
     #For the parameter of interest, replace the 0.5 with a range of values between 0 and 1
-    X_values[:, 15] = np.linspace(0, 1, 10)  # Set the 15th column values to evenly spaced values from 0 to 1
+    X_values[:, indexed_param] = np.linspace(0, 1, 10)  # Set the 15th column values to evenly spaced values from 0 to 1
 
     # Predict mean and standard deviation of the Gaussian process at each point in x_values
     y_pred, y_std = gpr_model.predict(X_values, return_std=True)
-    coef_deter = r2_score(y_test[:10],y_pred[:10])
+    coef_deter = r2_score(y_test[:10],y_pred[:10], force_finite = True)
 
     
     # Plot the results
     plt.figure(figsize=(10, 6))
     
-    plt.plot(X_values[:, 15],
+    plt.plot(X_values[:, indexed_param],
              y_pred[:10,],
              color='#134611',
              label='GPR Prediction')
 
-    plt.text(0,np.max(y_test),
+    plt.text(0,1,
              'R2_score = '+str(np.round(coef_deter,2)),
              fontsize=10)
     
     # applying z-score for 99.7% CI
-    plt.fill_between(X_values[:, 15],
+    plt.fill_between(X_values[:, indexed_param],
                      y_pred[:10] - z_score * y_std[:10], y_pred[:10] + z_score * y_std[:10],
                      alpha=0.5, 
                      color='#9d6b53',
@@ -341,23 +464,69 @@ def train_emulator(param, var):
 
    
     
-    plt.xlabel('Perturbed Parameter: ')
-    plt.ylabel('Variable: ')
+    plt.xlabel(f'Perturbed Parameter: {param_title}')
+    plt.ylabel(f'Variable: {var_title} ')
     plt.title('Parameter Perturbation Uncertainty Estimation')
     
     plt.legend()
-    plt.show()
 
+     # Save the plot as a PNG file
+    plt.savefig(f'plots/emulator/emulator_plot_{var_name}.png')
+    
+    return plt.show()
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ----          Plot Accuracy       ----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+def plot_accuracy(y_test, y_pred, y_std):
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ----      Visualize Accuracy      ----
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  
-    plt.errorbar(y_test[:10],
-                 y_pred[:10],
-                 yerr=3*y_std,
-                 fmt="o",
-                 color='#134611')
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+    # save names
+    param_title = param_name.title()
+    var_title = var_name.title()
+
+    # index parameter name
+    # store the parameter names to index later
+    global param_names
+    param_names = {
+        key.upper(): value for key, value in {
+            'FUN_fracfixers': 0, 'KCN': 1, 'a_fix': 2, 'crit_dayl': 3, 'd_max': 4, 'fff': 5,
+            'froot_leaf': 6, 'fstor2tran': 7, 'grperc': 8, 'jmaxb0': 9, 'jmaxb1': 10, 'kcha': 11,
+            'kmax': 12, 'krmax': 13, 'leaf_long': 14, 'leafcn': 15, 'lmr_intercept_atkin': 16,
+            'lmrha': 17, 'lmrhd': 18, 'medlynintercept': 19, 'medlynslope': 20, 'nstem': 21,
+            'psi50': 22, 'q10_mr': 23, 'slatop': 24, 'soilpsi_off': 25, 'stem_leaf': 26,
+            'sucsat_sf': 27, 'theta_cj': 28, 'tpu25ratio': 29, 'tpuse_sf': 30, 'wc2wjb0': 31
+        }.items()
+    }
     
+    indexed_param = param_names.get(param_name.upper())
+    
+    # Calculate the z-score for the 99.7% confidence interval
+    # 99.7th percentile (three standard deviations)
+    z_score = norm.ppf(0.99865)  
+    
+    
+    #For the parameter of interest, replace the 0.5 with a range of values between 0 and 1
+    X_values[:, indexed_param] = np.linspace(0, 1, 10)  # Set the 15th column values to evenly spaced values from 0 to 1
+
+    # Predict mean and standard deviation of the Gaussian process at each point in x_values
+    y_pred, y_std = gpr_model.predict(X_values, return_std=True)
+    coef_deter = r2_score(y_test[:10],y_pred[:10], force_finite = True)
+
+    
+    # save names
+    param_title = param_name.title()
+    var_title = var_name.title()
+    
+    plt.errorbar(y_test[:10],
+             y_pred[:10],
+             yerr=3*y_std[:10],
+             fmt="o",
+             color='#134611',
+             elinewidth=1,  # Increase the width of the error bar lines
+             capsize=5)     # Increase the size of the caps on the error bars
+
     plt.text(-0.3,np.max(y_test),
              'R2_score = '+str(np.round(coef_deter,2)),
              fontsize=10)
@@ -370,36 +539,96 @@ def train_emulator(param, var):
     plt.xlim([np.min(y_test)-1,np.max(y_test)+1])
     plt.ylim([np.min(y_pred)-1,np.max(y_pred)+1])
 
-    plt.xlabel('Variable Test')
-    plt.ylabel('Emulated Variable')
+    plt.xlabel(f'Perturbed Parameter: {param_title}')
+    plt.ylabel(f'Variable: {var_title} ')
     plt.title('Emulator Validation')
     
     plt.tight_layout()
 
+     # Save the plot as a PNG file
+    plt.savefig(f'plots/accuracy/accuracy_plot_{var_name}.png')
+
+    return plt.show()
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ----       Plot Sensitivity       ----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+#Fast plot
+def plot_FAST(model):
+    
+    # Define a custom function to generate the Gaussian regression line for each parameter
+    def gaussian_regression_lines(model):
+
+        def create_parameter_names_dict():
+            data = {
+                key.upper(): value for key, value in {
+                    'FUN_fracfixers': 0, 'KCN': 1, 'a_fix': 2, 'crit_dayl': 3, 'd_max': 4, 'fff': 5,
+                    'froot_leaf': 6, 'fstor2tran': 7, 'grperc': 8, 'jmaxb0': 9, 'jmaxb1': 10, 'kcha': 11,
+                    'kmax': 12, 'krmax': 13, 'leaf_long': 14, 'leafcn': 15, 'lmr_intercept_atkin': 16,
+                    'lmrha': 17, 'lmrhd': 18, 'medlynintercept': 19, 'medlynslope': 20, 'nstem': 21,
+                    'psi50': 22, 'q10_mr': 23, 'slatop': 24, 'soilpsi_off': 25, 'stem_leaf': 26,
+                    'sucsat_sf': 27, 'theta_cj': 28, 'tpu25ratio': 29, 'tpuse_sf': 30, 'wc2wjb0': 31
+                }.items()
+            }
+            return data
+
+        param_df = create_parameter_names_dict()
+        
+        fourier_amplitudes = []  # List to store Fourier amplitudes for each parameter
+        
+        for param_index in range(32):
+            # Generate x_values with 32 dimensions
+            x_values = np.full((10, 32), 0.5)  # Fill array with 0.5
+            x_values[:, param_index] = np.linspace(0, 1, 10)  # Set the current parameter values to evenly spaced values from 0 to 1
+
+            # Predict mean and standard deviation of the Gaussian process at each point in x_values
+            y_mean, _ = model.predict(x_values, return_std=True)
+
+            # Compute Fourier transform of the model output
+            y_fft = fft(y_mean)
+
+            # Compute amplitude of each frequency component
+            amplitude = np.abs(y_fft)
+
+            # Store the amplitude corresponding to the first non-zero frequency (excluding DC component)
+            fourier_amplitudes.append(amplitude[1])
+
+        return fourier_amplitudes
+
+    # Calculate Fourier amplitudes
+    fourier_amplitudes = gaussian_regression_lines(gpr_model)
+
+    # Sort parameters based on Fourier amplitudes in descending order
+    sorted_indices = np.argsort(fourier_amplitudes)
+    sorted_fourier_amplitudes = np.array(fourier_amplitudes)[sorted_indices]
+    
+    # Swapping keys and values using a dictionary comprehension
+    swapped_param_keys = {v: k for k, v in create_parameter_names_dict().items()}
+
+    # Extract parameter names corresponding to sorted indices from lookup table
+    sorted_parameter_names = [swapped_param_keys[index] for index in sorted_indices]
+
+    # Plot horizontal bar chart
+    plt.figure(figsize=(16, 8))
+    plt.barh(range(len(sorted_fourier_amplitudes)), sorted_fourier_amplitudes, color='darkolivegreen')
+    plt.ylabel('')
+    plt.xlabel('Fourier Amplitude')
+    plt.title(f'Fourier amplitude sensitivity test(FAST) for {var_name}')
+    plt.yticks(range(len(sorted_fourier_amplitudes)), sorted_parameter_names)
+    plt.grid(axis='x', linestyle='--', alpha=0.7)
+    plt.gca().set_aspect('auto', adjustable='box')
+    # Save the plot as a PNG file
+    plt.savefig(f'plots/FAST/sensitivity_plot_{var_name}.png')
+
     return plt.show()
 
-# Define a custom function to generate the Gaussian regression line for each parameter
-def gaussian_regression_lines(model, X):
-    fourier_amplitudes = []  # List to store Fourier amplitudes for each parameter
-    
-    for param_index in range(32):
-        # Generate x_values with 32 dimensions
-        x_values = np.full((10, 32), 0.5)  # Fill array with 0.5
-        x_values[:, param_index] = np.linspace(0, 1, 10)  # Set the current parameter values to evenly spaced values from 0 to 1
 
-        # Predict mean and standard deviation of the Gaussian process at each point in x_values
-        y_mean, _ = model.predict(X_values, return_std=True)
 
-        # Compute Fourier transform of the model output
-        y_fft = fft(y_mean)
 
-        # Compute amplitude of each frequency component
-        amplitude = np.abs(y_fft)
 
-        # Store the amplitude corresponding to the first non-zero frequency (excluding DC component)
-        fourier_amplitudes.append(amplitude[1])
 
-    return fourier_amplitudes
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ----      Dashboard Wrangle       ----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
 
 def dashboard_wrangling(param, var):
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
