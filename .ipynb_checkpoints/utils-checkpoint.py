@@ -5,6 +5,7 @@ import xarray as xr
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import pickle
 import os
 
 import glob
@@ -390,7 +391,7 @@ def train_emulator(param, var):
     print("Mean Absolute Error:", mae)
     print("Training Score:", train_score)
     
-    return gpr_model, X_train, X_test, y_pred, y_std, y_test
+    return gpr_model, y_pred, y_std, y_test
 
 
 
@@ -406,7 +407,7 @@ def train_emulator(param, var):
 X_values = np.full((10, 32), 0.5)  # Fill array with 0.5
 
 
-def plot_emulator(gpr_model):
+def plot_emulator(gpr_model, y_test, y_pred, y_std):
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ----      Visualize Emulation     ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
