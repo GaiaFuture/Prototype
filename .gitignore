@@ -1,6 +1,9 @@
 # History files
 .Rhistory
 .Rapp.history
+data_saves.ipynb*
+__pycache__/*
+.ipynb_checkpoints/*
 
 # Session Data files
 .RData
