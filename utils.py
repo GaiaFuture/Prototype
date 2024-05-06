@@ -466,8 +466,8 @@ def plot_emulator(gpr_model, y_test, r2_emulator):
                      color='#9d6b53',
                      label = '3 St.Dev., Confidence Interval')
 
-   # TOTVEGC goes up to 7500
-    plt.ylim([0, 7500])
+   #  work in prog, need to adjust according to parameter relationship
+   # plt.ylim([0, ])
     plt.xlabel(f'Perturbed Parameter: {param_title}')
     plt.ylabel(f'Variable: {var_title} ')
     plt.title('Parameter Perturbation Uncertainty Estimation')
