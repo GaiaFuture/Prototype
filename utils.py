@@ -467,7 +467,6 @@ def plot_emulator(gpr_model, y_test, r2_emulator):
                      label = '3 St.Dev., Confidence Interval')
 
    
-    
     plt.xlabel(f'Perturbed Parameter: {param_title}')
     plt.ylabel(f'Variable: {var_title} ')
     plt.title('Parameter Perturbation Uncertainty Estimation')
