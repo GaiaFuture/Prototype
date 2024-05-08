@@ -252,10 +252,10 @@ def read_n_wrangle(param, var):
     #----        If-else Load Data       ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     
-    filepath = os.path.join("saves", f"{var}.nc")
+    filepath = os.path.join("preprocessed_data", f"{var}.nc")
     if os.path.exists(filepath):
          #read in the file as a dataset
-        ds=xr.open_dataset('saves/'+var+'.nc')
+        ds=xr.open_dataset('preprocessed_data/'+var+'.nc')
     
         #then convert back to data array
         var_avg = ds[var]
@@ -274,7 +274,7 @@ def read_n_wrangle(param, var):
 
         #you ought to convert the data array to dataset before writing to file
         ds = var_avg.to_dataset(name = var)
-        ds.to_netcdf('saves/'+var+'.nc') # note that this will throw error if you try to overwrite existing files
+        ds.to_netcdf('preprocessed_data/'+var+'.nc') # note that this will throw error if you try to overwrite existing files
 
     return params, var_avg, param_name, var_name
 
