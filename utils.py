@@ -495,7 +495,7 @@ def create_parameter_names_dict():
     }
     return data
 
-def plot_FAST_accuracy(gpr_model, r2_train, y_test, y_pred, y_std):
+def plot_FAST_accuracy(gpr_model, r2_emulator, y_test, y_pred, y_std):
     def gaussian_regression_lines(gpr_model):
         fourier_amplitudes = []
         
