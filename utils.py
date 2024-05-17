@@ -81,14 +81,21 @@ def get_cluster(account,cores=30):
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ----     cluster reading function       ----
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#modify the function if you want to pass the parameter
+# modify the function if you want to pass the parameter
+# pull 20 years of data
+# this has cool potential to have time period subset option
+# indexing the selected lists or using multiples of 500 
 def read_all_simulations(var):
-    '''prepare cluster list and read to create ensemble(group of data)
-    use preprocess to select only certain dimension and a variable'''
-    # read all simulations as a list
-    cluster_list= sorted(glob.glob('/glade/campaign/cgd/tss/projects/PPE/PPEn11_LHC/transient/hist/PPEn11_transient_LHC[0][0-5][0-9][0-9].clm2.h0.2005-02-01-00000.nc'))
-    cluster_list = cluster_list[1:]
-
+    '''Prepare cluster list and read to create ensemble(group of data)
+    Use preprocess to select only certain dimension and a variable'''
+    # Define the list of lists
+    cluster_lists = [
+        sorted(glob.glob('/glade/campaign/cgd/tss/projects/PPE/PPEn11_LHC/transient/hist/PPEn11_transient_LHC[0][0-5][0-9][0-9].clm2.h0.1995-02-01-00000.nc'))[1:],
+        sorted(glob.glob('/glade/campaign/cgd/tss/projects/PPE/PPEn11_LHC/transient/hist/PPEn11_transient_LHC[0][0-5][0-9][0-9].clm2.h0.2000-02-01-00000.nc'))[1:],
+        sorted(glob.glob('/glade/campaign/cgd/tss/projects/PPE/PPEn11_LHC/transient/hist/PPEn11_transient_LHC[0][0-5][0-9][0-9].clm2.h0.2005-02-01-00000.nc'))[1:],
+        sorted(glob.glob('/glade/campaign/cgd/tss/projects/PPE/PPEn11_LHC/transient/hist/PPEn11_transient_LHC[0][0-5][0-9][0-9].clm2.h0.2010-02-01-00000.nc'))[1:]
+    ]
+    
     def preprocess(ds, var):
         '''using this function in xr.open_mfdataset as preprocess
         ensures that when only these four things are selected 
@@ -96,11 +103,12 @@ def read_all_simulations(var):
         return ds[['lat', 'lon', 'time', var]]
     
     #read the list and load it for the notebook
-    ds = xr.open_mfdataset( cluster_list, 
-                                   combine='nested',
-                                   preprocess = lambda ds: preprocess(ds, var),
-                                   parallel= True, 
-                                   concat_dim="ens")
+    ds = xr.open_mfdataset( cluster_lists, 
+                            combine='nested',
+                           # lambda allows us to call the predefined preprocess on the ds
+                            preprocess = lambda ds: preprocess(ds, var),
+                            parallel= True, 
+                            concat_dim= ["time", "ens"])
     return ds
 
 
@@ -534,7 +542,7 @@ def plot_FAST_accuracy(gpr_model, r2_emulator, y_test, y_pred, y_std):
     ax_inset.set_xlabel('Variable Test')
     ax_inset.set_ylabel(f'Emulated Variable: {var_name}')
     ax_inset.set_title(f'Emulator Accuracy: {var_name}')
-    ax_inset.text(0.5, 0.1, f'R² Score = {np.round(r2_train, 2)}', fontsize=12, \
+    ax_inset.text(0.5, 0.1, f'R² Score = {np.round(r2_emulator, 2)}', fontsize=12, \
                   transform=ax_inset.transAxes, horizontalalignment='center', weight='bold')
     
      # Save the plot as a PNG file
