@@ -207,7 +207,7 @@ def subset_var_cluster(var):
     as a xr.da.'''
     
     # Read in and wrangle user selected variable cluster
-    da_v = read_all_simulations(var)
+    da_v = read_all_simulations(var).compute()
     # feb. ncar time bug
     da = fix_time(da_v)
     # convert xr.ds to xr.da
