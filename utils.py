@@ -342,112 +342,89 @@ def read_n_wrangle(param, var, time_selection):
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ----        Train Emulator        ----
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-def train_emulator(param, var):
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # ----   Load Pickled Emulation     ----
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-   # work in progress in GaiaFuture/Scripts/ML/Gaussian/gpr_pickling.ipynb
-    # if it's already been queried and saved, pull it!
-    # tis only names properly when inside dashboard function
-    # commenting out now and adapting bc var is xr.da in this case
-    filename = os.path.join("emulation_results", f"gpr_model_{var_name}_{param_name}.sav")
-   
-    if os.path.exists(filename):
-        # load the model from disk
-        loaded_model = pickle.load(open(filename, 'rb'))
-        
-    else:
-        print(f"Emulator is running, this may take a few moments")
-    
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # ----      Split Data 90/10        ----
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # data for splitting
+def train_emulator(param, var, var_name, time_selection):
+     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     # ----         Split Data           ----
+     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     X_train, X_test, y_train, y_test = train_test_split(param,
-                                                        var,
+                                                        var, 
                                                         test_size=0.2,
-                                                        # setting a seed
                                                         random_state=0)
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ----    Kernel Specs No Tuning    ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # initiate the model without tuning
-    kernel = ConstantKernel(constant_value = 3,
-                            constant_value_bounds=(1e-2, 1e4)) \
-                  * RBF(length_scale=1, 
-                        length_scale_bounds=(1e-4, 1e8))
-   
-   
-     # using an out of the box kernel for now
+    # Kernel Specs No Tuning
+    kernel = ConstantKernel(constant_value=3, constant_value_bounds=(1e-2, 1e4))  \
+            * RBF(length_scale=1, length_scale_bounds=(1e-4, 1e8))
+
+    # Using an out-of-the-box kernel for now
     gpr_model = GaussianProcessRegressor(kernel=kernel,
-                                        # want 20 random starts
-                                        n_restarts_optimizer=20,
-                                        # setting seed
-                                        random_state=99,
-                                        normalize_y=True)
+                                         n_restarts_optimizer=20, 
+                                         random_state=99, 
+                                         normalize_y=True)
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ----         Fit the Model        ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # Fit the model to the training data
-    gpr_model = gpr_model.fit(X_train, y_train)
+    gpr_model.fit(X_train, y_train)
+
+    # Prepare to store results
+    results_dict = {
+        'X_values': {},
+        'y_pred': {},
+        'y_std': {},
+        'r2': {}
+    }
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # ----         Get Predictions      ----
+    # ----      Iterate thru Params     ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # Make predictions
-    y_pred, y_std = gpr_model.predict(X_test, return_std=True)
+    for param_name, param_index in param_names_dict.items():
+        # Create X_values for prediction linspace
+        X_values = np.full((100, len(param_names_dict)), 0.5)           # r2 drops to 0.004 when removing this, but we're only using the R^2 used in fast plot
+       # X_values = np.tile(X_test, 1)
+        X_values[:, param_index] = np.linspace(0, 1, 100)
+        # Vary only the current parameter over a linspace
+        #X_values[:, param_index] = np.linspace(np.min(X_test[:, param_index]), np.max(X_test[:, param_index]))
 
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # ----         Get Predictions      ----
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # Make predictions for the current parameter
+        y_pred, y_std = gpr_model.predict(X_values, return_std=True)
 
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # ----         Collect Metrics      ----
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # Verify training score
-    # Calculate Mean Absolute Error
-    mae = mean_absolute_error(y_test, y_pred)
+        
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # ----         Collect Metrics      ----
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        mae = mean_absolute_error(y_test, y_pred)
+        rmse_emulator = np.sqrt(mean_squared_error(y_test, y_pred))
+        r2_emulator = np.corrcoef(y_test, y_pred)[0, 1]**2
 
-    # Calculate R^2
-    r2_emulator = np.corrcoef(y_test, y_pred)[0,1]**2
-    
-    # Calculate RMSE
-    rmse_emulator = np.sqrt(mean_squared_error(y_test, y_pred))
-
-    # Create a DataFrame to store the results for plotting
-    results_df = pd.DataFrame({
-        'y_pred': y_pred,
-        'y_std': y_std,
-        'y_test': y_test,
-        'X_test': [x.tolist() for x in X_test],  # Convert array to list for DataFrame
-    })
-
-    # Add metrics to the DataFrame
-    results_df['R^2'] = r2_emulator
-    results_df['RMSE'] = rmse_emulator
-    #results_df['Accuracy Score'] = accuracy
-    results_df['Mean Absolute Error'] = mae
-    
+        # Store results in dictionaries
+        results_dict['X_values'][param_name] = X_values
+        results_dict['y_pred'][param_name] = y_pred
+        results_dict['y_std'][param_name] = y_std
+        results_dict['r2'][param_name] = r2_emulator
+        
    
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # ----      Pickle Emulation     ----
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # save the model to disk
-    pickle.dump(gpr_model, open(filename, 'wb')) 
-    
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # ----        Print Metrics         ----
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # Print Training Metrics
-    print("R^2:", r2_emulator)
-    print("RMSE:", rmse_emulator)
-    print("Mean Absolute Error:", mae)
-   # print("Training Score:", train_score)
-    
-    return gpr_model, y_pred, y_std, y_test, X_test, r2_emulator
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # ----      Pickle Emulation     ----
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # Save the predictions and overall R^2 to a file
+        filename = os.path.join("emulation_results", f"{var_name}_{param_name}_{time_selection}_gpr_model.sav")
 
+        if os.path.exists(filename):
+            # Load the model from disk
+            loaded_model = pickle.load(open(filename, 'rb'))
+        else:
+            print(f"Emulator is running for {param_name}, this may take a few moments")
+            with open(filename, 'wb') as file:
+                pickle.dump((X_values, y_pred, y_std, r2_emulator, param_name, var_name), file)
 
-
+    return results_dict
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -456,80 +433,69 @@ def train_emulator(param, var):
 
 # Create an array that sets the value of all 32 parameters to 0.5
 # this will be used when plotting emulation
-
-X_values = np.full((10, 32), 0.5)  # Fill array with 0.5
-
-
-def plot_emulator(gpr_model, y_test, r2_emulator):
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # ----      Visualize Emulation     ----
-    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-    # save names
-    param_title = param_name.title()
-    var_title = var_name.title()
-
-    # index parameter name
-    # store the parameter names to index later
-    global param_names
-    param_names = {
-        key.upper(): value for key, value in {
-            'FUN_fracfixers': 0, 'KCN': 1, 'a_fix': 2, 'crit_dayl': 3, 'd_max': 4, 'fff': 5,
-            'froot_leaf': 6, 'fstor2tran': 7, 'grperc': 8, 'jmaxb0': 9, 'jmaxb1': 10, 'kcha': 11,
-            'kmax': 12, 'krmax': 13, 'leaf_long': 14, 'leafcn': 15, 'lmr_intercept_atkin': 16,
-            'lmrha': 17, 'lmrhd': 18, 'medlynintercept': 19, 'medlynslope': 20, 'nstem': 21,
-            'psi50': 22, 'q10_mr': 23, 'slatop': 24, 'soilpsi_off': 25, 'stem_leaf': 26,
-            'sucsat_sf': 27, 'theta_cj': 28, 'tpu25ratio': 29, 'tpuse_sf': 30, 'wc2wjb0': 31
-        }.items()
-    }
+def plot_emulator2(results_dict, var_name, param_name, param_names_dict, time_selection):
+    # Convert param_name to uppercase to match the filenames
+    param_name_upper = param_name.upper()
     
-    indexed_param = param_names.get(param_name.upper())
-    
+    # Retrieve the data for the specific parameter
+    X_values = results_dict['X_values'][param_name_upper]
+    y_pred = results_dict['y_pred'][param_name_upper]
+    y_std = results_dict['y_std'][param_name_upper]
+
+    # Get the parameter index corresponding to the name
+    indexed_param = param_names_dict[param_name_upper]
+
     # Calculate the z-score for the 99.7% confidence interval
-    # 99.7th percentile (three standard deviations)
-    z_score = norm.ppf(0.99865)  
-    
-    
-    #For the parameter of interest, replace the 0.5 with a range of values between 0 and 1
-    X_values[:, indexed_param] = np.linspace(0, 1, 10)  # Set the 15th column values to evenly spaced values from 0 to 1
+    z_score = norm.ppf(0.99865)
 
-    # Predict mean and standard deviation of the Gaussian process at each point in x_values
-    y_pred, y_std = gpr_model.predict(X_values, return_std=True)
-    # using the emulator R2 value 
-    coef_deter = r2_emulator
-    #coef_deter = np.corrcoef(y_test[:10],y_pred[:10])[0,1]**2    # DOUBLE CHECK
+    # Calculate global min and max for y limits based on the specific parameter's prediction
+    global_min = np.min(y_pred - y_std)
+    global_max = np.max(y_pred + y_std)
 
-    
     # Plot the results
     plt.figure(figsize=(10, 6))
+  
+    # Load the Roboto font
+    plt.rcParams['font.family'] = 'Roboto'
+
     
+    # Set the style to a dark theme
+    plt.style.use('dark_background')
     plt.plot(X_values[:, indexed_param],
-             y_pred[:10,],
-             color='#134611',
+             y_pred,
+             color='white',
+             linewidth = 3,
              label='GPR Prediction')
 
-    plt.text(0.5,np.max(y_pred),
-             'R² Score = '+str(np.round(coef_deter,2)),
-             fontsize=10)
-    
-    # applying z-score for 99.7% CI
+    # Apply z-score for 99.7% CI
     plt.fill_between(X_values[:, indexed_param],
-                     y_pred[:10] - z_score * y_std[:10], y_pred[:10] + z_score * y_std[:10],
-                     alpha=0.5, 
-                     color='#9d6b53',
-                     label = '3 St.Dev., Confidence Interval')
+                     y_pred - z_score * y_std, y_pred + z_score * y_std,
+                     alpha = 0.5,
+                     color='#62c900ff',
+                     label='3 St.Dev., Confidence Interval')
 
-   #  work in prog, need to adjust according to parameter relationship
-   # plt.ylim([0, ])
-    plt.xlabel(f'Perturbed Parameter: {param_title}')
-    plt.ylabel(f'Variable: {var_title} ')
-    plt.title('Parameter Perturbation Uncertainty Estimation')
-    
-    plt.legend()
+    plt.xlabel(f'Perturbed Parameter: {param_name.title()}',
+              size = 18)
+    plt.ylabel(f'Climate Variable: {var_name.split("_")[0].title()}',
+              size = 18)
+    plt.title(f'Parameter Perturbation Uncertainty Estimation \nAssessing Global Annual Means {time_selection}',
+             size = 24)
+   
+    plt.legend(fontsize=16)
 
-     # Save the plot as a PNG file
-    plt.savefig(f'plots/emulator/emulator_plot_{var_name}_{param_name}.png')
-    
-    return plt.show()
+    plt.tick_params(axis='both', which='major', labelsize=14)
+
+
+    # Set y limits based on global min and max
+    plt.ylim(global_min, global_max)
+
+    # Save the plot as a PNG file
+    plot_dir = 'plots/emulator'
+    os.makedirs(plot_dir, exist_ok=True)
+    plt.savefig(os.path.join(plot_dir, f'emulator_plot_{var_name}_{param_name_upper}_{time_selection}_gpr_model.png'))
+
+    plt.tight_layout()
+    plt.show()
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ----      Plot FAST Accuracy      ----
