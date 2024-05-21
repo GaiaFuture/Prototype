@@ -85,33 +85,82 @@ def get_cluster(account,cores=30):
 # pull 20 years of data
 # this has cool potential to have time period subset option
 # indexing the selected lists or using multiples of 500 
-def read_all_simulations(var):
+def read_all_simulations(var, time_selection):
     '''Prepare cluster list and read to create ensemble(group of data)
     Use preprocess to select only certain dimension and a variable'''
-    # Define the list of lists
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    #----  Define list of cluster lists ----
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # each cluster list contains 500 simulations to call
     cluster_lists = [
+        
+        # 1995 - 2000
         sorted(glob.glob('/glade/campaign/cgd/tss/projects/PPE/PPEn11_LHC/transient/hist/PPEn11_transient_LHC[0][0-5][0-9][0-9].clm2.h0.1995-02-01-00000.nc'))[1:],
+        # 2000 - 2005
         sorted(glob.glob('/glade/campaign/cgd/tss/projects/PPE/PPEn11_LHC/transient/hist/PPEn11_transient_LHC[0][0-5][0-9][0-9].clm2.h0.2000-02-01-00000.nc'))[1:],
+        # 2005 - 2010
         sorted(glob.glob('/glade/campaign/cgd/tss/projects/PPE/PPEn11_LHC/transient/hist/PPEn11_transient_LHC[0][0-5][0-9][0-9].clm2.h0.2005-02-01-00000.nc'))[1:],
+         # 2010 - 2015
         sorted(glob.glob('/glade/campaign/cgd/tss/projects/PPE/PPEn11_LHC/transient/hist/PPEn11_transient_LHC[0][0-5][0-9][0-9].clm2.h0.2010-02-01-00000.nc'))[1:]
     ]
-    
+
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    #----    Prepping to Load Cluster   ----
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     def preprocess(ds, var):
         '''using this function in xr.open_mfdataset as preprocess
         ensures that when only these four things are selected 
         before the data is combined'''
         return ds[['lat', 'lon', 'time', var]]
+
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    #----   If-else Load Selected Time  ----
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # Select appropriate lists based on the time_selection
+
+     # Select appropriate lists based on the time_selection
+    if time_selection == '2010-2015':
+        selected_files = cluster_lists[3]
+        
+        # Read the list and load it for the notebook using combine='nested'
+        ds = xr.open_mfdataset(selected_files, 
+                               combine='nested',
+                               preprocess=lambda ds: preprocess(ds, var),
+                               parallel=True, 
+                               concat_dim=["ens"])
+    else:
+        # up to list 1 aka 0 bc python index
+        # python end exclusive so need to go up to 4 for all
+        if time_selection == '1995-2015':
+            selected_lists = cluster_lists[:4]
+         # up to list 2 aka 1 bc python index
+        elif time_selection == '2000-2015':
+            selected_lists = cluster_lists[1:4]
+         # up to list 3 aka 2 bc python index
+        elif time_selection == '2005-2015':
+            selected_lists = cluster_lists[2:4]
+        # safety check
+        else:
+            # to ensure a user selects time range
+            raise ValueError("Uh oh, please select a time range that is currently available.")
+
     
-    #read the list and load it for the notebook
-    ds = xr.open_mfdataset( cluster_lists, 
-                            combine='nested',
-                           # lambda allows us to call the predefined preprocess on the ds
-                            preprocess = lambda ds: preprocess(ds, var),
-                            parallel= True, 
-                            concat_dim= ["time", "ens"])
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    #----      Load in Cluster Data     ----
+    #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # read the list and load it for the notebook
+        ds = xr.open_mfdataset( selected_lists, 
+                                combine='nested',
+                               # lambda allows us to call the predefined preprocess on the ds
+                                preprocess = lambda ds: preprocess(ds, var),
+                                parallel= True, 
+                                concat_dim= ["time", "ens"])
+
+    # we aren't going to save these files because they need to be preprocessed 
+    # using the wrangle and subset functions
+    # better to keep these things broken up / shorter for future works updates
+    # makes sense to keep if else pulling statement at the top of read_n_wrangle
     return ds
-
-
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ----     load data stored in casper     ----
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -201,13 +250,13 @@ def yearly_weighted_average(da):
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ----    Subset User Selection Funct     ----
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-def subset_var_cluster(var):
+def subset_var_cluster(var, time_selection):
     '''Subset the selected variable 
     (s) between 2005-2010 [for now, will be time range]
     as a xr.da.'''
     
     # Read in and wrangle user selected variable cluster
-    da_v = read_all_simulations(var).compute()
+    da_v = read_all_simulations(var, time_selection)
     # feb. ncar time bug
     da = fix_time(da_v)
     # convert xr.ds to xr.da
@@ -240,9 +289,10 @@ def wrangle_var_cluster(da):
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ----        Wrangle Data          ----
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-def read_n_wrangle(param, var):
+def read_n_wrangle(param, var, time_selection):
+    
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    #----            Parameter Data.          ----
+    # ----            Parameter Data.         ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # store user-inputs as global variables
     # will call later for plotting
@@ -251,41 +301,40 @@ def read_n_wrangle(param, var):
     var_name = var
     
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    #----            Parameter Data.          ----
+    # ----            Parameter Data.         ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # pull in parameter data
     params = param_wrangling()
     
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    #----        If-else Load Data       ----
+    # ----        If-else Load Data     ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     
-    filepath = os.path.join("preprocessed_data", f"{var}.nc")
+    filepath = os.path.join("preprocessed_data", f"{var}_{time_selection}.nc")
     if os.path.exists(filepath):
          #read in the file as a dataset
-        ds=xr.open_dataset('preprocessed_data/'+var+'.nc')
+        ds=xr.open_dataset('preprocessed_data/'+var+'_'+time_selection+'.nc')
     
-        #then convert back to data array
+        # then convert back to data array
         var_avg = ds[var]
     else:
         print(f"Reading and wrangling your data, this may take a few minutes")
         #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ----    Subset User Selection Funct     ----
         #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        var_da = subset_var_cluster(var)
+        var_da = subset_var_cluster(var, time_selection)
 
         #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ----      Subset Var Wrangle Funct      ----
         #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # NEED TO ADD NAME ATTRIBUTE IN WRANGLING PORTION
         var_avg = wrangle_var_cluster(var_da)
 
-        #you ought to convert the data array to dataset before writing to file
+        # you ought to convert the data array to dataset before writing to file
         ds = var_avg.to_dataset(name = var)
-        ds.to_netcdf('preprocessed_data/'+var+'.nc') # note that this will throw error if you try to overwrite existing files
+        # note that this will throw error if you try to overwrite existing files
+        ds.to_netcdf('preprocessed_data/'+var+'_'+time_selection+'.nc') 
 
     return params, var_avg, param_name, var_name
-
 
 
 
@@ -356,11 +405,6 @@ def train_emulator(param, var):
     # ----         Collect Metrics      ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # Verify training score
-    #train_score = gpr_model.score(X_train, y_train)
-
-    # Accuracy Score
-    #accuracy = accuracy_score(y_test, y_pred)
-
     # Calculate Mean Absolute Error
     mae = mean_absolute_error(y_test, y_pred)
 
