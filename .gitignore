@@ -42,6 +42,8 @@ vignettes/*.pdf
 /saves
 # R Environment Variables
 .Renviron
+/preprocessed_data
+/emulation+_results
 
 # pkgdown site
 docs/
