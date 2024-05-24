@@ -15,19 +15,16 @@ from dask.distributed import Client
 
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
-from sklearn.impute import SimpleImputer
+
 
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, Matern, WhiteKernel,ConstantKernel
 from sklearn.gaussian_process.kernels import ConstantKernel, RBF
 from sklearn.metrics.pairwise import linear_kernel as Linear
 
-from sklearn.metrics import make_scorer
-from sklearn.preprocessing import MinMaxScaler 
+
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import mean_absolute_error
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import r2_score
 from scipy.stats import norm
 from scipy.fft import fft
 
@@ -217,7 +214,6 @@ def fix_time(da):
     
     return da
 
-
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ----  weigh dummy landarea by gridcell  ----
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -252,7 +248,7 @@ def yearly_weighted_average(da):
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 def subset_var_cluster(var, time_selection):
     '''Subset the selected variable 
-    (s) between 2005-2010 [for now, will be time range]
+    (s) between 1995-2015 [for now, will be time range]
     as a xr.da.'''
     
     # Read in and wrangle user selected variable cluster
@@ -336,13 +332,30 @@ def read_n_wrangle(param, var, time_selection):
 
     return params, var_avg, param_name, var_name
 
-
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ----   Parameter Name Diction     ----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+def create_parameter_names_dict():
+    data = {
+        key.upper(): value for key, value in {
+            'FUN_fracfixers': 0, 'KCN': 1, 'a_fix': 2, 'crit_dayl': 3, 'd_max': 4, 'fff': 5,
+            'froot_leaf': 6, 'fstor2tran': 7, 'grperc': 8, 'jmaxb0': 9, 'jmaxb1': 10, 'kcha': 11,
+            'kmax': 12, 'krmax': 13, 'leaf_long': 14, 'leafcn': 15, 'lmr_intercept_atkin': 16,
+            'lmrha': 17, 'lmrhd': 18, 'medlynintercept': 19, 'medlynslope': 20, 'nstem': 21,
+            'psi50': 22, 'q10_mr': 23, 'slatop': 24, 'soilpsi_off': 25, 'stem_leaf': 26,
+            'sucsat_sf': 27, 'theta_cj': 28, 'tpu25ratio': 29, 'tpuse_sf': 30, 'wc2wjb0': 31
+        }.items()
+    }
+    return data 
+    
+# object to store in utils outside of any function so it's callable
+param_names_dict = create_parameter_names_dict() 
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ----        Train Emulator        ----
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-def train_emulator(param, var, var_name, time_selection):
+def train_emulator2(param, var, var_name, time_selection):
      #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
      # ----         Split Data           ----
      #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -375,7 +388,13 @@ def train_emulator(param, var, var_name, time_selection):
         'X_values': {},
         'y_pred': {},
         'y_std': {},
-        'r2': {}
+        'r2': {},
+         # save the trained GPR model
+        'gpr_model': gpr_model, 
+         # save y_test for R^2 later
+        'y_test': y_test, 
+        'X_test': X_test
+       
     }
 
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -422,18 +441,37 @@ def train_emulator(param, var, var_name, time_selection):
         else:
             print(f"Emulator is running for {param_name}, this may take a few moments")
             with open(filename, 'wb') as file:
-                pickle.dump((X_values, y_pred, y_std, r2_emulator, param_name, var_name), file)
+                pickle.dump((results_dict), file)
 
     return results_dict
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# ----    Ylims for Var Plotting    ----
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# iterate thru prediction range and select min + max for plotting
+def find_global_y_limits(results_dict):
+    global_min, global_max = float('inf'), float('-inf')
+    for param_name in results_dict['X_values'].keys():
+        y_pred = results_dict['y_pred'][param_name]
+        y_std = results_dict['y_std'][param_name]
+        global_min = min(global_min, np.min(y_pred - y_std))
+        global_max = max(global_max, np.max(y_pred + y_std))
+    return global_min, global_max
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ----          Plot Emulator       ----
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-
 # Create an array that sets the value of all 32 parameters to 0.5
 # this will be used when plotting emulation
-def plot_emulator2(results_dict, var_name, param_name, param_names_dict, time_selection):
+def plot_emulator(results_dict, var_name, param_name, param_names_dict, time_selection, global_min, global_max):
+
+    # Load pickled units dictionary
+    filename = os.path.join("Results", "units_dict.sav")
+    units_dict = pickle.load(open(filename, 'rb'))
+    
+    # Retrieve the units for the specific variable
+    units = units_dict.get(var_name, {}).get('units', 'Unknown units')
+    
     # Convert param_name to uppercase to match the filenames
     param_name_upper = param_name.upper()
     
@@ -448,43 +486,30 @@ def plot_emulator2(results_dict, var_name, param_name, param_names_dict, time_se
     # Calculate the z-score for the 99.7% confidence interval
     z_score = norm.ppf(0.99865)
 
-    # Calculate global min and max for y limits based on the specific parameter's prediction
-    global_min = np.min(y_pred - y_std)
-    global_max = np.max(y_pred + y_std)
-
     # Plot the results
     plt.figure(figsize=(10, 6))
-  
-    # Load the Roboto font
-    plt.rcParams['font.family'] = 'Roboto'
-
+    plt.rcParams['font.family'] = 'Roboto'  # Load the Roboto font
+    plt.style.use('dark_background')  # Set the style to a dark theme
     
-    # Set the style to a dark theme
-    plt.style.use('dark_background')
     plt.plot(X_values[:, indexed_param],
              y_pred,
              color='white',
-             linewidth = 3,
+             linewidth=3,
              label='GPR Prediction')
 
     # Apply z-score for 99.7% CI
     plt.fill_between(X_values[:, indexed_param],
                      y_pred - z_score * y_std, y_pred + z_score * y_std,
-                     alpha = 0.5,
+                     alpha=0.5,
                      color='#62c900ff',
                      label='3 St.Dev., Confidence Interval')
 
-    plt.xlabel(f'Perturbed Parameter: {param_name.title()}',
-              size = 18)
-    plt.ylabel(f'Climate Variable: {var_name.split("_")[0].title()}',
-              size = 18)
-    plt.title(f'Parameter Perturbation Uncertainty Estimation \nAssessing Global Annual Means {time_selection}',
-             size = 24)
-   
+    plt.xlabel(f'Perturbed Parameter: {param_name.title()}', size=18)
+    plt.ylabel(f'Climate Variable: {var_name.split("_")[0].title()} {units}', size=18)
+    plt.title(f'Parameter Sensitivity and Uncertainty Estimation \nAssessing Global Annual Means {time_selection}', size=24)
+
     plt.legend(fontsize=16)
-
     plt.tick_params(axis='both', which='major', labelsize=14)
-
 
     # Set y limits based on global min and max
     plt.ylim(global_min, global_max)
@@ -496,31 +521,39 @@ def plot_emulator2(results_dict, var_name, param_name, param_names_dict, time_se
 
     plt.tight_layout()
     plt.show()
-
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ----      Plot FAST Accuracy      ----
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-def create_parameter_names_dict():
-    data = {
-        key.upper(): value for key, value in {
-            'FUN_fracfixers': 0, 'KCN': 1, 'a_fix': 2, 'crit_dayl': 3, 'd_max': 4, 'fff': 5,
-            'froot_leaf': 6, 'fstor2tran': 7, 'grperc': 8, 'jmaxb0': 9, 'jmaxb1': 10, 'kcha': 11,
-            'kmax': 12, 'krmax': 13, 'leaf_long': 14, 'leafcn': 15, 'lmr_intercept_atkin': 16,
-            'lmrha': 17, 'lmrhd': 18, 'medlynintercept': 19, 'medlynslope': 20, 'nstem': 21,
-            'psi50': 22, 'q10_mr': 23, 'slatop': 24, 'soilpsi_off': 25, 'stem_leaf': 26,
-            'sucsat_sf': 27, 'theta_cj': 28, 'tpu25ratio': 29, 'tpuse_sf': 30, 'wc2wjb0': 31
-        }.items()
-    }
-    return data
+def plot_FAST_accuracy(results_dict, var_name, param_name, time_selection):
+    # Retrieve the data for the specific variable
+    units = units_dict.get(var_name, {}).get('units', 'Unknown units')
+    
+    # Convert param_name to uppercase to match the filenames
+    param_name_upper = param_name.upper()
+    
+    # Retrieve the gpr_model from results_dict
+    gpr_model = results_dict['gpr_model']
+    # Retrieve the data for the specific parameter
+    y_pred = results_dict['y_pred'][param_name_upper]
+    y_std = results_dict['y_std'][param_name_upper]
+    y_test = results_dict['y_test']
 
-def plot_FAST_accuracy(gpr_model, r2_emulator, y_test, y_pred, y_std):
+    # Retrieve unweighted X_test to make new predictions
+    X_test = results_dict['X_test']
+
+     # Make new predictions with unweighted parameter data
+    y_pred_full = gpr_model.predict(X_test)
+
+    # Calculate new r² score
+    r2_emulator = np.corrcoef(y_test, y_pred_full)[0, 1]**2
+
     def gaussian_regression_lines(gpr_model):
         fourier_amplitudes = []
         
         for param_index in range(32):
             X_values = np.full((10, 32), 0.5)
             X_values[:, param_index] = np.linspace(0, 1, 10)
-            y_pred, _ = gpr_model.predict(X_values, return_std=True)
+            y_pred, y_std = gpr_model.predict(X_values, return_std=True)
             y_fft = fft(y_pred)
             amplitude = np.abs(y_fft)
             fourier_amplitudes.append(amplitude[1])
@@ -534,31 +567,39 @@ def plot_FAST_accuracy(gpr_model, r2_emulator, y_test, y_pred, y_std):
     sorted_parameter_names = [swapped_param_keys[index] for index in sorted_indices]
 
     fig, ax = plt.subplots(figsize=(16, 8))
-    ax.barh(range(len(sorted_fourier_amplitudes)), sorted_fourier_amplitudes, color='darkolivegreen')
+    
+    # Load the Roboto font
+    plt.rcParams['font.family'] = 'Roboto'
+
+    ax.barh(range(len(sorted_fourier_amplitudes)), sorted_fourier_amplitudes, color='#62c900ff', alpha=0.5)
+    
     ax.set_ylabel('')
-    ax.set_xlabel('Fourier Amplitude')
-    ax.set_title(f'Fourier Amplitude Sensitivity Test (FAST) for {var_name} vs {param_name}')
+    ax.set_xlabel('Fourier Amplitude Sensitivity Test (FAST)', size=18)
+    ax.set_title(f'Parameter Sensitivty Analysis for {var_name} {units}', size=24, weight='bold')
+    
     ax.set_yticks(range(len(sorted_fourier_amplitudes)), sorted_parameter_names)
     ax.grid(axis='x', linestyle='--', alpha=0.7)
-    #ax.text(1, 0.5, f'R2_score = {np.round(r2_train,2)}', fontsize=10, transform=ax.transAxes)
     ax.set_aspect('auto', adjustable='box')
 
     # Create inset for accuracy plot
     ax_inset = inset_axes(ax, width="40%", height="40%", loc='center right')
-    ax_inset.errorbar(y_test, y_pred, yerr=3*y_std, fmt="o", color='#134611')
-    ax_inset.plot([0, np.max(y_test)], [0, np.max(y_pred)], linestyle='--', c='k')
+    ax_inset.errorbar(y_test, y_pred_full, yerr=3*y_std, fmt="o", color='#62c900ff', alpha=0.5)
+    ax_inset.plot([0, np.max(y_test)], [0, np.max(y_pred_full)], linestyle='--', color='white')
+    
     ax_inset.set_xlim([np.min(y_test)-1, np.max(y_test)+1])
-    ax_inset.set_ylim([np.min(y_pred)-1, np.max(y_pred)+1])
-    ax_inset.set_xlabel('Variable Test')
-    ax_inset.set_ylabel(f'Emulated Variable: {var_name}')
-    ax_inset.set_title(f'Emulator Accuracy: {var_name}')
+    ax_inset.set_ylim([np.min(y_pred_full)-1, np.max(y_pred_full)+1])
+    
+    ax_inset.set_xlabel(f'{var_name} Test', size=16)
+    ax_inset.set_ylabel(f'Emulated Variable: {var_name} {units}', size=16)
+    ax_inset.set_title(f'Emulator Accuracy: {var_name} {units} \nAssessing Global Annual Means {time_selection}', size=18, weight='bold')
+    
     ax_inset.text(0.5, 0.1, f'R² Score = {np.round(r2_emulator, 2)}', fontsize=12, \
                   transform=ax_inset.transAxes, horizontalalignment='center', weight='bold')
     
-     # Save the plot as a PNG file
-    plt.savefig(f'plots/fast_accuracy/fast_acc_plot_{var_name}_{param_name}.png')
+    # Save the plot as a PNG file
+    plot_dir = 'plots/fast_accuracy'
+    os.makedirs(plot_dir, exist_ok=True)
+    plt.savefig(os.path.join(plot_dir, f'fast_acc_plot_{var_name}_{param_name}.png'))
 
+    # plt.tight_layout()
     return plt.show()
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# ----      Dashboard Wrangle       ----
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
