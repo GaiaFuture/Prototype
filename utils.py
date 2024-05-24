@@ -306,10 +306,10 @@ def read_n_wrangle(param, var, time_selection):
     # ----        If-else Load Data     ----
     #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     
-    filepath = os.path.join("preprocessed_data", f"{var}_{time_selection}.nc")
+    filepath = os.path.join("Results/preprocessed_data", f"{var}_{time_selection}.nc")
     if os.path.exists(filepath):
          #read in the file as a dataset
-        ds=xr.open_dataset('preprocessed_data/'+var+'_'+time_selection+'.nc')
+        ds=xr.open_dataset('Results/preprocessed_data/'+var+'_'+time_selection+'.nc')
     
         # then convert back to data array
         var_avg = ds[var]
@@ -328,7 +328,7 @@ def read_n_wrangle(param, var, time_selection):
         # you ought to convert the data array to dataset before writing to file
         ds = var_avg.to_dataset(name = var)
         # note that this will throw error if you try to overwrite existing files
-        ds.to_netcdf('preprocessed_data/'+var+'_'+time_selection+'.nc') 
+        ds.to_netcdf('Results/preprocessed_data/'+var+'_'+time_selection+'.nc') 
 
     return params, var_avg, param_name, var_name
 
@@ -433,7 +433,7 @@ def train_emulator2(param, var, var_name, time_selection):
         # ----      Pickle Emulation     ----
         #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # Save the predictions and overall R^2 to a file
-        filename = os.path.join("emulation_results", f"{var_name}_{param_name}_{time_selection}_gpr_model.sav")
+        filename = os.path.join("Results/emulation_results", f"{var_name}_{param_name}_{time_selection}_gpr_model.sav")
 
         if os.path.exists(filename):
             # Load the model from disk
@@ -466,7 +466,7 @@ def find_global_y_limits(results_dict):
 def plot_emulator(results_dict, var_name, param_name, param_names_dict, time_selection, global_min, global_max):
 
     # Load pickled units dictionary
-    filename = os.path.join("Results", "units_dict.sav")
+    filename = os.path.join("Results/units_dict.sav")
     units_dict = pickle.load(open(filename, 'rb'))
     
     # Retrieve the units for the specific variable
@@ -515,7 +515,7 @@ def plot_emulator(results_dict, var_name, param_name, param_names_dict, time_sel
     plt.ylim(global_min, global_max)
 
     # Save the plot as a PNG file
-    plot_dir = 'plots/emulator'
+    plot_dir = 'Results/plots/emulator'
     os.makedirs(plot_dir, exist_ok=True)
     plt.savefig(os.path.join(plot_dir, f'emulator_plot_{var_name}_{param_name_upper}_{time_selection}_gpr_model.png'))
 
@@ -597,7 +597,7 @@ def plot_FAST_accuracy(results_dict, var_name, param_name, time_selection):
                   transform=ax_inset.transAxes, horizontalalignment='center', weight='bold')
     
     # Save the plot as a PNG file
-    plot_dir = 'plots/fast_accuracy'
+    plot_dir = 'Results/plots/fast_accuracy'
     os.makedirs(plot_dir, exist_ok=True)
     plt.savefig(os.path.join(plot_dir, f'fast_acc_plot_{var_name}_{param_name}.png'))
 
