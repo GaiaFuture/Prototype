@@ -50,7 +50,7 @@ Sklearn.Gaussian_process.Kernels.DotProduct. Scikit, scikit-learn.org/stable/mod
 Sklearn.Metrics.Pairwise.Polynomial_kernel. Scikit, scikit-learn.org/stable/modules/generated/sklearn.metrics.pairwise.polynomial_kernel.html. Accessed 13 May 2024.
 
 ### Authors and Contributors
-Heather Childers (Project Manager)
-  email: hmchilders@bren.ucsb.edu
-Sofia Ingersoll (Communications Manger)
-  email: singersoll@bren.ucsb.edu
+Heather Childers (Project Manager) <br/>
+  email: hmchilders@bren.ucsb.edu <br/>
+Sofia Ingersoll (Communications Manger) <br/>
+  email: singersoll@bren.ucsb.edu <br/>
